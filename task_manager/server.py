@@ -46,44 +46,35 @@ async def get_all_tasks(request: Request):
     return response.json(f"{tasks}\n\n All Tasks received.")
 
 
-# @app.get("/tasks/<id>")
-# async def get_task(request: Request,id):
-#     task = None
-#     for t in tasks:
-#         if str(t['id']) == str(id):
-#             task = t
-#             break
-#     if task is None:
-#         return response.json(f"Task {id} not found.",status = 404)
-#     return response.json(task)
+@app.get("/tasks/<id:int>")
+async def get_task(request: Request, id: int):
+    task = await Task.get(id=id)
+    if task:
+        return response.json(task.to_dict())
+    return response.json({f"Task {id} not found."}, status=404)
 
 
-# @app.put("tasks/<id>")
-# async def update_task(request: Request,id):
-#     task = None
-#     for t in tasks:
-#         if str(t['id']) == str(id):
-#             task = t
-#             break
-#     if task is None:
-#         return response.json(f"Task {id} not found.",status = 404)
-#     task['title'] = request.json.get('title',task['title'])
-#     task['description'] = request.json.get('description',task['description'])
-#     task['status'] = request.json.get('status',task['status'])
-#     return response.json(f"Task {id} updated.\n{tasks}")
+@app.put("/tasks/<id:int>")
+async def update_task(request: Request, id: int):
+    task = await Task.get(id=id)
+    if task:
+        task.title = request.json.get("title", task.title)
+        task.description = request.json.get("description", task.description)
+        task.status = request.json.get("status", task.status)
+        await task.save()
+        return response.json({f"Task {id} updated"})
+    return response.json({ f"Task {id} not found."}, status=404)
 
 
-# @app.delete("tasks/<id>")
-# async def delete_task(request: Request,id):
-#     task = None
-#     for t in tasks:
-#         if str(t['id']) == str(id):
-#             task = t
-#             break
-#     if task is None:
-#         return response.json(f"Task {id} not found.",status = 404)
-#     tasks.remove(task)
-#     return response.json(f"Task {id} deleted.")
+
+@app.delete("/tasks/<id:int>")
+async def delete_task(request: Request, id: int):
+    task = await Task.get(id=id)
+    if task:
+        await task.delete()
+        return response.json({f"Task {id} deleted"})
+    return response.json({f"Task {id} not found."}, status=404)
+
 
 
 if __name__ == '__main__':
