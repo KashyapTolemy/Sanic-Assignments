@@ -1,4 +1,5 @@
 from sanic import Sanic, Request, response
+from utils.models import Task
 
 app = Sanic(__name__)
 tasks = []
@@ -17,9 +18,11 @@ async def create_task(request: Request):
     tasks.append(task)
     return response.json(f"Task {task['id']} : {task['title']} Created.")
 
+
 @app.get("/tasks")
 async def get_all_tasks(request: Request):
     return response.json(f"{tasks}\n\n All Tasks received.")
+
 
 @app.get("/tasks/<id>")
 async def get_task(request: Request,id):
@@ -31,6 +34,7 @@ async def get_task(request: Request,id):
     if task is None:
         return response.json(f"Task {id} not found.",status = 404)
     return response.json(task)
+
 
 @app.put("tasks/<id>")
 async def update_task(request: Request,id):
@@ -46,6 +50,7 @@ async def update_task(request: Request,id):
     task['status'] = request.json.get('status',task['status'])
     return response.json(f"Task {id} updated.\n{tasks}")
 
+
 @app.delete("tasks/<id>")
 async def delete_task(request: Request,id):
     task = None
@@ -57,6 +62,7 @@ async def delete_task(request: Request,id):
         return response.json(f"Task {id} not found.",status = 404)
     tasks.remove(task)
     return response.json(f"Task {id} deleted.")
+
 
 if __name__ == '__main__':
     app.run(port = 9999, debug = True)
