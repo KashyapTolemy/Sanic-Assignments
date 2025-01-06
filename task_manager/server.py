@@ -1,12 +1,11 @@
 from sanic import Sanic, Request, response
 from utils.models import Task
-from tortoise import Tortoise, run_async
-from redis import ayncio as aioredis
+from tortoise import Tortoise
+import redis.asyncio as redis
 import json
 
+
 app = Sanic(__name__)
-tasks = []
-task_counter = 1
 
 
 TORTOISE_CONNECT = {
@@ -22,23 +21,12 @@ TORTOISE_CONNECT = {
 }
 
 
-
-async def connect_to_db():
+async def connect_to_db(app,loop):
     await Tortoise.init(
         db_url='mysql://root:uknowwhoiam@localhost:3306/task_manager',
         modules={"models": ["utils.models"]}, 
     )    
     await Tortoise.generate_schemas()
-
-
-redis_client = None
-
-async def connect_to_redis(app, loop):
-    global redis_client
-    redis_client = await aioredis.create_redis_pool('redis://localhost', encoding='utf-8', loop=loop)
-    app.redis = redis_client
-    print("Redis connection successful")
-
 
 @app.post("/tasks")
 async def create_task(request: Request):
@@ -57,65 +45,95 @@ async def get_all_tasks(request: Request):
 
 
 @app.get("/tasks/<id:int>")
-async def get_task(request: Request, id: int):
-    task_key = f"task:{id}"
-    cached_task = await redis_client.get(task_key)
-    
+async def get_task(request: Request,id):
+    cache_key = f"task:{id}"
+    cached_task = await app.ctx.redis.get(cache_key)
+
     if cached_task:
-        print(f"Cache found for Task {id}")
-        task = json.loads(cached_task)
-        return response.json(task)
+        return response.json(json.loads(cached_task), status=200)
+    else:
+        task = await Task.get(id = id)
 
-    task = await Task.get_or_none(id=id)
-    if task:
-        task_dict = {
+        task_data = {
             "id": task.id,
             "title": task.title,
             "description": task.description,
             "status": task.status
         }
-        await redis_client.set(task_key, json.dumps(task_dict), ex=300)  # Cache for 5 mins
-        print(f"Cache not found for Task {id}, saved to Redis")
-        return response.json(task_dict)
+        await app.ctx.redis.setex(cache_key, 300, json.dumps(task_data))
 
-    return response.json({f"Task {id} not found."}, status=404)
-
-@app.put("/tasks/<id:int>")
-async def update_task(request: Request, id: int):
-    task = await Task.get_or_none(id=id)
-    if task:
-        task.title = request.json.get("title", task.title)
-        task.description = request.json.get("description", task.description)
-        task.status = request.json.get("status", task.status)
-        await task.save()
-        task_key = f"task:{id}"
-        task_dict = {
-            "id": task.id,
-            "title": task.title,
-            "description": task.description,
-            "status": task.status
-        }
-        await redis_client.set(task_key, json.dumps(task_dict), ex=300)
-        print(f"Updated Task {id} in cache")
-        return response.json({f"Task {id} updated"})
-
-    return response.json({f"Task {id} not found."}, status=404)
+        return response.json(f"{task_data}", status=200)
 
 
-@app.delete("/tasks/<id:int>")
-async def delete_task(request: Request, id: int):
-    task = await Task.get_or_none(id=id)
-    if task:
-        await task.delete()
-        task_key = f"task:{id}"
-        await redis_client.delete(task_key)
-        print(f"Task {id} removed from cache")
-        return response.json({f"Task {id} deleted"})
+@app.put("tasks/<id:int>")
+async def update_task(request: Request,id):
+    task = await Task.get(id=id)
     
-    return response.json({f"Task {id} not found."}, status=404)
+    if task is None:
+        return response.json(f"Task {id} not found.", status=404)
+
+    task.title = request.json.get('title', task.title)
+    task.description = request.json.get('description', task.description)
+    task.status = request.json.get('status', task.status)
+    
+    await task.save()
+
+    task_data = {
+        "id": task.id,
+        "title": task.title,
+        "description": task.description,
+        "status": task.status
+    }
+
+    cache_key = f"task:{id}"
+    await app.ctx.redis.setex(cache_key, 300, json.dumps(task_data))
+
+    return response.json(task_data, status=200)
+
+
+@app.delete("tasks/<id:int>")
+async def delete_task(request: Request,id):
+    task = await Task.get(id=id)
+
+    if task is None:
+        return response.json(f"Task {id} not found.", status=404)
+
+    task_data = {
+        "id": task.id,
+        "title": task.title,
+        "description": task.description,
+        "status": task.status
+    }
+
+    await task.delete()
+
+    cache_key = f"task:{id}"
+    await app.ctx.redis.delete(cache_key)
+
+    return response.json(f"Task {id} deleted., task: {task_data}", status=200)
+
+
+@app.before_server_start
+async def setup_db(app, loop):
+    await connect_to_db(app, loop)
+
+
+@app.before_server_start
+async def connect_to_redis(app):
+    app.ctx.redis = redis.Redis(
+        host='localhost', 
+        port=6379, 
+        db=0, 
+        decode_responses=True
+    )
+    
+    await app.ctx.redis.ping()
+
+
+@app.after_server_stop
+async def close_redis(app,loop):
+    await app.ctx.redix.close()
 
 
 if __name__ == '__main__':
-    run_async(connect_to_db())
-    run_async(connect_to_redis(app, app.loop))
     app.run(port = 9999, debug = True)
