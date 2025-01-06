@@ -28,7 +28,6 @@ async def connect_to_db(app,loop):
     )    
     await Tortoise.generate_schemas()
 
-
 @app.post("/tasks")
 async def create_task(request: Request):
     task = await Task.create(
@@ -61,7 +60,6 @@ async def get_task(request: Request,id):
             "description": task.description,
             "status": task.status
         }
-
         await app.ctx.redis.setex(cache_key, 300, json.dumps(task_data))
 
         return response.json(f"{task_data}", status=200)
