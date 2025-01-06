@@ -6,6 +6,8 @@ name = "pypi"
 [packages]
 tortoise-orm = {extras = ["aiomysql"], version = "*"}
 aiomysql = "*"
+redis = "*"
+aioredis = "*"
 
 [dev-packages]
 
